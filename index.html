@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Acelitas1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,600;0,800;1,500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffc8dd;
+      --text: #590d22;
+      --button: #ffb3c1;
+      --button-active: #ff8fab;
+      --accent: #c9184a;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Montserrat", system-ui, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    #hearts {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    main {
+      position: relative;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 16px;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 6vw, 2.6rem);
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    #hint {
+      margin: 0;
+      min-height: 1.5em;
+      font-style: italic;
+      font-weight: 500;
+    }
+
+    .buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2.5rem;
+      margin-top: 1.5rem;
+      min-height: 6rem;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 800;
+      color: var(--text);
+      background: var(--button);
+      border: 0;
+      border-radius: 999px;
+      padding: 0.6em 1.4em;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgb(201 24 74 / 0.18);
+      transition: background 0.15s, transform 0.15s, font-size 0.25s;
+      touch-action: manipulation;
+    }
+
+    button:hover { background: var(--button-active); }
+    button:active { transform: scale(0.96); }
+
+    #yes { font-size: 1.15rem; }
+
+    #no {
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+
+    #no.fleeing {
+      position: fixed;
+      z-index: 2;
+      margin: 0;
+      transition: left 0.28s cubic-bezier(.2,.8,.2,1), top 0.28s cubic-bezier(.2,.8,.2,1),
+        transform 0.28s, background 0.15s, font-size 0.25s;
+    }
+
+    #no.shake { animation: shake 0.4s; }
+
+    #no.converted {
+      background: var(--button-active);
+      animation: pop 0.4s;
+    }
+
+    @keyframes shake {
+      0%, 100% { translate: 0; }
+      20%, 60% { translate: -6px; }
+      40%, 80% { translate: 6px; }
+    }
+
+    @keyframes pop {
+      50% { scale: 1.25; }
+    }
+
+    #big-heart {
+      display: none;
+      font-size: 6rem;
+      line-height: 1;
+      color: var(--accent);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    body.accepted .buttons,
+    body.accepted #hint { display: none; }
+    body.accepted #big-heart { display: block; }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #big-heart { animation: none; }
+      #no.fleeing { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="hearts" aria-hidden="true"></canvas>
+
+  <main>
+    <h1 id="title">Quer namorar comigo?</h1>
+    <p id="hint" aria-live="polite"></p>
+    <div id="big-heart" aria-hidden="true">&hearts;</div>
+    <div class="buttons">
+      <button id="yes" type="button">Sim</button>
+      <button id="no" type="button" tabindex="-1">Não</button>
+    </div>
+  </main>
+
+  <script>
+    // cada fuga avança uma etapa; depois da última, o "Não" desiste e vira "Sim"
+    const STAGES = [
+      { no: "Tem certeza?", hint: "Ops, escorregou..." },
+      { no: "Pensa bem...", hint: "Esse botão é meio tímido" },
+      { no: "Pensa melhor ainda", hint: "Ele foge de compromisso. Diferente de mim, hein" },
+      { no: "Não, para pelo amor de Deus", hint: "O botão está implorando, olha a situação dele" },
+      { no: "Eu tenho família!", hint: "Ele tem três botõezinhos pra criar" },
+      { no: "Socorro", hint: "Alguém chama o suporte técnico", shake: true },
+      { no: "Vou contar pra sua mãe", hint: "Ela já aprovou, só pra constar" },
+      { no: "Erro 404: Não não encontrado", hint: "Esse \"Não\" foi descontinuado" },
+      { no: "Não (versão demo)", hint: "Desbloqueie o Não no plano Premium por apenas R$ 1 milhão" },
+      { no: "Tô cansado, sério", hint: "Até o botão do Não já está torcendo pela gente", shake: true },
+      { no: "Tá bom, eu desisto", hint: "Ele está pensando na vida..." },
+    ];
+    const HEART_COLORS = ["#ffafcc", "#ff8fab", "#fb6f92", "#ffb3c6", "#c9184a"];
+    const DODGE_RADIUS = 45;      // distância (px) do cursor que faz o "Não" fugir
+    const DODGE_COOLDOWN = 350;   // ms entre fugas contadas para a "escalada"
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const title = document.getElementById("title");
+    const hint = document.getElementById("hint");
+    const yes = document.getElementById("yes");
+    const no = document.getElementById("no");
+    const bigHeart = document.getElementById("big-heart");
+
+    let dodges = 0;
+    let lastDodge = 0;
+    let accepted = false;
+    let surrendered = false;
+
+    // ---------- botão fujão ----------
+
+    function inflate(rect, by) {
+      return { left: rect.left - by, top: rect.top - by, right: rect.right + by, bottom: rect.bottom + by };
+    }
+
+    function overlaps(a, b) {
+      return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    }
+
+    function escapePoint(px, py) {
+      const w = innerWidth, h = innerHeight;
+      const bw = no.offsetWidth, bh = no.offsetHeight;
+      const avoid = [yes.getBoundingClientRect(), title.getBoundingClientRect()].map(r => inflate(r, 15));
+      const farEnough = Math.min(200, Math.min(w, h) / 3);
+      let best = null, bestDist = -1;
+
+      for (let i = 0; i < 60; i++) {
+        const x = 10 + Math.random() * Math.max(w - bw - 20, 0);
+        const y = 10 + Math.random() * Math.max(h - bh - 20, 0);
+        const box = { left: x, top: y, right: x + bw, bottom: y + bh };
+        if (avoid.some(r => overlaps(box, r))) continue;
+        const dist = Math.hypot(x + bw / 2 - px, y + bh / 2 - py);
+        if (dist > farEnough) return { x, y };
+        if (dist > bestDist) { best = { x, y }; bestDist = dist; }
+      }
+      return best;
+    }
+
+    function escalate() {
+      dodges++;
+      yes.style.fontSize = `${Math.min(1.15 + dodges * 0.2, 2.8)}rem`;
+
+      if (dodges > STAGES.length) {
+        surrender();
+        return;
+      }
+      const stage = STAGES[dodges - 1];
+      no.textContent = stage.no;
+      hint.textContent = stage.hint;
+      no.style.transform = `rotate(${(Math.random() - 0.5) * 20}deg) scale(${Math.max(1 - dodges * 0.03, 0.75)})`;
+      no.classList.remove("shake");
+      if (stage.shake && !reducedMotion) {
+        void no.offsetWidth; // reinicia a animação
+        no.classList.add("shake");
+      }
+    }
+
+    function surrender() {
+      surrendered = true;
+      no.textContent = "Sim";
+      no.style.transform = "";
+      no.classList.remove("shake");
+      no.classList.add("converted");
+      hint.textContent = "Pronto, agora os dois são Sim. Problema resolvido ♥";
+    }
+
+    function dodge(px, py) {
+      if (accepted || surrendered) return;
+
+      if (!no.classList.contains("fleeing")) {
+        // fixa o botão onde ele está antes de começar a correr, para não "pular"
+        const r = no.getBoundingClientRect();
+        no.style.left = `${r.left}px`;
+        no.style.top = `${r.top}px`;
+        no.classList.add("fleeing");
+        no.getBoundingClientRect(); // força o layout para a transição partir daqui
+      }
+
+      const now = performance.now();
+      if (now - lastDodge > DODGE_COOLDOWN) {
+        lastDodge = now;
+        escalate();
+      }
+
+      const target = escapePoint(px, py);
+      if (target) {
+        no.style.left = `${target.x}px`;
+        no.style.top = `${target.y}px`;
+      }
+    }
+
+    document.addEventListener("pointermove", e => {
+      if (accepted || e.pointerType !== "mouse") return;
+      const r = no.getBoundingClientRect();
+      const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right);
+      const dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+      if (Math.hypot(dx, dy) < DODGE_RADIUS) dodge(e.clientX, e.clientY);
+    });
+
+    // no celular não existe "passar o mouse": foge ao toque
+    no.addEventListener("pointerdown", e => {
+      if (surrendered) return;
+      e.preventDefault();
+      dodge(e.clientX, e.clientY);
+    });
+
+    no.addEventListener("click", e => {
+      if (surrendered) {
+        accept();
+        return;
+      }
+      // só acontece se a pessoa for MUITO rápida
+      e.preventDefault();
+      const r = no.getBoundingClientRect();
+      dodge(r.left + r.width / 2, r.top + r.height / 2);
+      hint.textContent = "Esse botão está com defeito, tenta o outro";
+    });
+
+    addEventListener("resize", () => {
+      if (!no.classList.contains("fleeing")) return;
+      const x = Math.min(parseFloat(no.style.left), innerWidth - no.offsetWidth - 10);
+      const y = Math.min(parseFloat(no.style.top), innerHeight - no.offsetHeight - 10);
+      no.style.left = `${Math.max(x, 10)}px`;
+      no.style.top = `${Math.max(y, 10)}px`;
+    });
+
+    // ---------- final feliz ----------
+
+    yes.addEventListener("click", accept);
+
+    function accept() {
+      accepted = true;
+      document.body.classList.add("accepted");
+      title.innerHTML = "Eu te amo, meu amor!<br>Lanchinho mais tarde?";
+
+      if (reducedMotion) return;
+      const r = bigHeart.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      for (let i = 0; i < 90; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random() * 8;
+        spawnHeart(cx, cy, Math.cos(angle) * speed, Math.sin(angle) * speed - 4, 0.18);
+      }
+    }
+
+    // ---------- corações ----------
+
+    const canvas = document.getElementById("hearts");
+    const ctx = canvas.getContext("2d");
+    let hearts = [];
+
+    function resizeCanvas() {
+      const dpr = devicePixelRatio || 1;
+      canvas.width = innerWidth * dpr;
+      canvas.height = innerHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function spawnHeart(x, y, vx, vy, gravity) {
+      hearts.push({
+        x, y, vx, vy, gravity,
+        phase: Math.random() * Math.PI * 2,
+        size: 12 + Math.random() * 22,
+        color: HEART_COLORS[Math.floor(Math.random() * HEART_COLORS.length)],
+      });
+    }
+
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min((now - last) / 16.67, 3); // velocidade igual em telas de 60 Hz ou 120 Hz
+      last = now;
+      const w = innerWidth, h = innerHeight;
+
+      const rate = (accepted ? 0.25 : 0.05) * (reducedMotion ? 0.2 : 1);
+      if (Math.random() < rate * dt) {
+        spawnHeart(Math.random() * w, h + 20, 0, -1 - Math.random() * 1.5, 0);
+      }
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      hearts = hearts.filter(p => {
+        p.vy += p.gravity * dt;
+        p.phase += 0.08 * dt;
+        p.x += (p.vx + Math.sin(p.phase) * 0.6) * dt;
+        p.y += p.vy * dt;
+        if (p.y < -40 || p.y > h + 40 || p.x < -40 || p.x > w + 40) return false;
+        ctx.fillStyle = p.color;
+        ctx.font = `${p.size}px sans-serif`;
+        ctx.fillText("♥", p.x, p.y);
+        return true;
+      });
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
